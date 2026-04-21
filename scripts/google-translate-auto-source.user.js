@@ -1,12 +1,12 @@
 // ==UserScript==
 // @name         Google Translate Auto Source Language
 // @namespace    http://github.com/armanjr/tampermonkey
-// @version      1.2
+// @version      1.3
 // @author       ArmanJR
-// @description  Auto-switch Google Translate source language between English and Persian based on the script of the typed text, bypassing the transliteration IME. Also tints the page with a soft parchment background.
+// @description  Auto-switch Google Translate source language between English and Persian based on the script of the typed text, bypassing the transliteration IME. Dark theme, Vazirmatn font, and a Cmd+. shortcut to copy the translation and close the tab.
 // @match        https://translate.google.com/*
 // @run-at       document-idle
-// @grant        none
+// @grant        window.close
 // ==/UserScript==
 
 (function () {
@@ -250,7 +250,87 @@
         requestSwitch(typed);
     }
 
+    // Known UI strings that live inside the result region and must not be
+    // mistaken for the translation itself.
+    const RESULT_UI_STRINGS = new Set([
+        'Translation',
+        'Translating',
+        'Translation error',
+        "Can't load alternatives",
+        'Try again',
+        'Send feedback',
+        'error_outline',
+        'Learn more',
+        'Translations are gender-specific.',
+        'Some sentences may contain gender-specific alternatives.',
+    ]);
+
+    function getTranslatedText() {
+        const regions = document.querySelectorAll('c-wiz[role="region"][aria-labelledby]');
+        const resultRegion = regions[regions.length - 1];
+        if (!resultRegion) return null;
+
+        // Google renders the translation in multiple text nodes (main panel,
+        // tooltip, aria-live announcer, etc.). Count frequencies of all
+        // non-UI text nodes and return the most frequent one.
+        const walker = document.createTreeWalker(resultRegion, NodeFilter.SHOW_TEXT);
+        const counts = new Map();
+        const order = [];
+        let node;
+        while ((node = walker.nextNode())) {
+            const text = node.textContent.trim();
+            if (!text) continue;
+            if (RESULT_UI_STRINGS.has(text)) continue;
+            if (/^[.…·]+$/.test(text)) continue; // loading dots
+            if (!counts.has(text)) {
+                order.push(text);
+                counts.set(text, 0);
+            }
+            counts.set(text, counts.get(text) + 1);
+        }
+        if (!counts.size) return null;
+
+        let best = null;
+        let bestCount = 0;
+        for (const text of order) {
+            const count = counts.get(text);
+            if (count > bestCount) {
+                best = text;
+                bestCount = count;
+            }
+        }
+        log(`Translation candidates: ${JSON.stringify(Object.fromEntries(counts))}`);
+        return best;
+    }
+
+    // Cmd+. → copy the translated text to the clipboard and close the tab.
+    async function handleCopyAndClose(event) {
+        if (!event.metaKey || event.key !== '.') return;
+        if (event.ctrlKey || event.altKey || event.shiftKey) return;
+
+        event.preventDefault();
+        event.stopImmediatePropagation();
+
+        const text = getTranslatedText();
+        if (!text) {
+            warn('Cmd+. pressed but no translated text was found.');
+            return;
+        }
+
+        try {
+            await navigator.clipboard.writeText(text);
+            log('Copied translation to clipboard:', JSON.stringify(text));
+        } catch (err) {
+            warn('Failed to copy translation to clipboard:', err);
+            return;
+        }
+
+        log('Closing tab.');
+        window.close();
+    }
+
     document.addEventListener('keydown', handleKeydown, true);
+    document.addEventListener('keydown', handleCopyAndClose, true);
     document.addEventListener('input', handleInput, true);
     log('Loaded.');
 })();
