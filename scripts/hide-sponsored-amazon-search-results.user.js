@@ -4,7 +4,8 @@
 // @version      1.0.0
 // @description  Hide Amazon search results and ad blocks labeled "Sponsored"
 // @author       You
-// @include      /^https?:\/\/([^\/]+\.)?amazon\.[^\/]+\/.*$/
+// @match        https://www.amazon.ca/s*
+// @match        https://amazon.ca/s*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
